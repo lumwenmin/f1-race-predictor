@@ -32,7 +32,7 @@ async def root():
 @app.get("/race-data")
 async def get_race_data():
     drivers = [
-        {"driverId": 831, "name": "Max Verstappen"},
+        {"driverId": 830, "name": "Max Verstappen"},
         {"driverId": 1, "name": "Lewis Hamilton"},
         {"driverId": 844, "name": "Charles Leclerc"},
         {"driverId": 846, "name": "Lando Norris"},
