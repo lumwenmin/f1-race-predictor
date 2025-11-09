@@ -5,6 +5,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.pipeline import Pipeline
 import joblib
 
 # Load CSV files
@@ -35,27 +38,11 @@ df.rename(columns={'position_y': 'qualifying_position'}, inplace=True)
 # Add driver and team info (optional for feature enrichment)
 driver_details['driver_name'] = driver_details['forename'] + ' ' + driver_details['surname']
 df = df.merge(driver_details[['driverId', 'driver_name']], on='driverId', how='left')
-
 df = df.merge(team_details[['constructorId', 'name']], on='constructorId', how='left')
-
-# Map race status codes to descriptions
-status_map = dict(zip(race_status['statusId'], race_status['status']))
-df['race_status'] = df['statusId'].map(status_map)
-
-# Basic feature engineering
-# Create DNF flag (Did Not Finish)
-df['dnf'] = df['race_status'].apply(lambda x: 0 if x == 'Finished' else 1)
+df = df.merge(race_schedule[['raceId', 'circuitId']], on='raceId', how='left')
 
 # Define features for ML model
-features = [
-    'grid',                # Starting grid position
-    'qualifying_position', # Qualifying rank
-    'points',              # Points from this race
-    'dnf'                  # DNF flag
-]
-
-# Fill missing values for qualifying_position with a high number (poor rank)
-df['qualifying_position'] = df['qualifying_position'].fillna(30)
+features = ['driverId', 'circuitId', 'grid']
 
 X = df[features].copy()
 
@@ -75,33 +62,42 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 print(f"Training set: {X_train.shape}, Test set: {X_test.shape}")
 
-# Feature scaling
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+# Setup column transformer for categorical encoding and numeric scaling
+categorical_features = ['driverId', 'circuitId']
+numeric_features = ['grid']
 
-# Train a Gradient Boosting Classifier
-print("Training Gradient Boosting model...")
-model = GradientBoostingClassifier(
-    n_estimators=200,
-    learning_rate=0.1,
-    max_depth=5,
-    random_state=42
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features),
+        ('num', StandardScaler(), numeric_features)
+    ]
 )
-model.fit(X_train_scaled, y_train)
+
+# Create pipeline with preprocessing and Gradient Boosting model
+model_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', GradientBoostingClassifier(
+        n_estimators=200,
+        learning_rate=0.1,
+        max_depth=5,
+        random_state=42
+    ))
+])
+
+print("Training Gradient Boosting model with circuitId and driverId encoding...")
+model_pipeline.fit(X_train, y_train)
 
 print("Model training complete!")
 
 # Evaluate the model
-y_pred = model.predict(X_test_scaled)
+y_pred = model_pipeline.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 print(f'\nModel Accuracy: {accuracy:.3f}')
 print('\nClassification Report:')
 print(classification_report(y_test, y_pred, target_names=['Non-Podium', 'Podium']))
 
-# Save model and scaler for deployment
-joblib.dump(model, 'models/model.pkl')
-joblib.dump(scaler, 'models/scaler.pkl')
+# Save pipeline (includes scaler and encoder) for deployment
+joblib.dump(model_pipeline, 'models/model_pipeline.pkl')
 
-print("\nModel and scaler saved to models/ directory")
+print("\nModel pipeline saved to models/model_pipeline.pkl")
 print("Features used:", features)
