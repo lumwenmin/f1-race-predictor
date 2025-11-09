@@ -6,8 +6,8 @@
 
 ### Run a py file in venv
 
-enzure that venv is started
-run `python file_name.py`
+- enzure that venv is started
+- run `python file_name.py`
 
 ### Start Backend
 
