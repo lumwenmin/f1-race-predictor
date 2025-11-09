@@ -41,8 +41,21 @@ df = df.merge(driver_details[['driverId', 'driver_name']], on='driverId', how='l
 df = df.merge(team_details[['constructorId', 'name']], on='constructorId', how='left')
 df = df.merge(race_schedule[['raceId', 'circuitId']], on='raceId', how='left')
 
+df_sorted = df.sort_values(['driverId', 'raceId']).reset_index(drop=True)
+
+df_sorted['driver_recent_form'] = df_sorted.groupby('driverId')['positionOrder'].rolling(
+    window=5, 
+    min_periods=1
+).mean().reset_index(0, drop=True)
+
+df_sorted['driver_circuit_avg_finish'] = df_sorted.groupby(
+    ['driverId', 'circuitId']
+)['positionOrder'].transform('mean')
+
+df = df_sorted
+
 # Define features for ML model
-features = ['driverId', 'circuitId', 'grid']
+features = ['driverId', 'circuitId', 'grid', 'driver_recent_form', 'driver_circuit_avg_finish']
 
 X = df[features].copy()
 
@@ -64,7 +77,7 @@ print(f"Training set: {X_train.shape}, Test set: {X_test.shape}")
 
 # Setup column transformer for categorical encoding and numeric scaling
 categorical_features = ['driverId', 'circuitId']
-numeric_features = ['grid']
+numeric_features = ['grid', 'driver_recent_form', 'driver_circuit_avg_finish']
 
 preprocessor = ColumnTransformer(
     transformers=[
@@ -101,3 +114,19 @@ joblib.dump(model_pipeline, 'models/model_pipeline.pkl')
 
 print("\nModel pipeline saved to models/model_pipeline.pkl")
 print("Features used:", features)
+
+print("\nGenerating lookup tables for frontend predictions...")
+
+driver_stats = df.groupby('driverId').agg({
+    'positionOrder': 'mean'
+}).rename(columns={'positionOrder': 'avg_finish_position'})
+
+circuit_driver_stats = df.groupby(['driverId', 'circuitId']).agg({
+    'positionOrder': 'mean'
+}).rename(columns={'positionOrder': 'avg_finish_at_circuit'})
+
+driver_stats.to_csv('models/driver_stats.csv')
+circuit_driver_stats.to_csv('models/circuit_driver_stats.csv')
+
+print(f"Driver stats saved: {len(driver_stats)} drivers")
+print(f"Circuit-driver stats saved: {len(circuit_driver_stats)} combinations")

@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
-import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
@@ -56,24 +55,43 @@ async def get_race_data():
 
 @app.post("/predict")
 async def predict(data: RaceInput):
-    # Prepare input array as DataFrame for consistent column names
     import pandas as pd
-    input_df = pd.DataFrame([{
-        'driverId': data.driverId,
-        'circuitId': data.circuitId,
-        'grid': data.grid
-    }])
-
     try:
+        # Load lookup tables
+        driver_stats = pd.read_csv('models/driver_stats.csv', index_col='driverId')
+        circuit_driver_stats = pd.read_csv('models/circuit_driver_stats.csv', 
+                                          index_col=['driverId', 'circuitId'])
+        
+        # Look up historical statistics
+        try:
+            driver_recent_form = driver_stats.loc[data.driverId, 'avg_finish_position']
+        except KeyError:
+            driver_recent_form = 10.0  # Default for new drivers
+        
+        try:
+            driver_circuit_avg_finish = circuit_driver_stats.loc[(data.driverId, data.circuitId), 'avg_finish_at_circuit']
+        except KeyError:
+            driver_circuit_avg_finish = 10.0  # Default for unseen combinations
+        
+        # Prepare input with ALL 5 features
+        input_df = pd.DataFrame([{
+            'driverId': data.driverId,
+            'circuitId': data.circuitId,
+            'grid': data.grid,
+            'driver_recent_form': driver_recent_form,
+            'driver_circuit_avg_finish': driver_circuit_avg_finish
+        }])
+        
         prediction = model_pipeline.predict(input_df)[0]
         proba = model_pipeline.predict_proba(input_df)[0][prediction]
+        
+        return {
+            "prediction": int(prediction),
+            "confidence": float(proba),
+            "message": "Podium" if prediction == 1 else "Outside Podium",
+            "driverId": data.driverId,
+            "circuitId": data.circuitId
+        }
+        
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Prediction error: {e}")
-
-    return {
-        "prediction": int(prediction),
-        "confidence": proba,
-        "message": "Podium" if prediction == 1 else "Outside Podium",
-        "driverId": data.driverId,
-        "circuitId": data.circuitId
-    }
